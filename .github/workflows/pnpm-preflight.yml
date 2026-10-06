@@ -1,4 +1,4 @@
-name: pnpm document compatibility preflight
+name: pnpm snapshot and smoke preflight
 on:
   push:
     branches: [rksharma-owg/pnpm-preflight]
@@ -6,38 +6,6 @@ on:
 permissions:
   contents: read
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        sha: [7102ad7a8c8f3525fc3c5941b34a54d28e199365, da6bc69d33a7dc0990fd53cdc1ec91bbf323441e, 2f00ab9b7def197310deec187f87ad0c52825f57]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    env:
-      MINVERBUILDMETADATA: build.${{ github.run_number }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: ${{ matrix.sha }}
-          persist-credentials: false
-          fetch-depth: 0
-      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7
-      - name: Verify exact code and runtime
-        shell: bash
-        run: |
-          test "$(git rev-parse HEAD)" = "${{ matrix.sha }}"
-          git log -1 --format=%H
-          dotnet --info
-      - run: dotnet restore
-      - run: dotnet build --no-restore --configuration Debug
-      - name: Full tests including Integration and coverage
-        run: dotnet test --no-build --configuration Debug -p:ExcludeIntegrationTests=false -p:TestingPlatformCommandLineArguments="--coverage --coverage-output-format cobertura"
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
-        if: always()
-        with:
-          name: build-${{ matrix.os }}-${{ matrix.sha }}
-          path: test/**/TestResults/**
   snapshot:
     strategy:
       fail-fast: false
@@ -57,14 +25,13 @@ jobs:
           ref: ${{ matrix.sha }}
           persist-credentials: false
           fetch-depth: 0
-          path: code
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
           path: validation
       - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7
         with:
-          global-json-file: code/global.json
+          global-json-file: global.json
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: '3.14'
@@ -73,8 +40,8 @@ jobs:
         env:
           MATRIX_OS: ${{ matrix.os }}
         run: |
-          test "$(git -C code rev-parse HEAD)" = "${{ matrix.sha }}"
-          git -C code log -1 --format=%H
+          test "$(git rev-parse HEAD)" = "${{ matrix.sha }}"
+          git log -1 --format=%H
           python - <<'PYCODE'
           import hashlib,json,os,pathlib,zipfile
           key=os.environ['MATRIX_OS'].split('-')[0]
@@ -87,7 +54,6 @@ jobs:
           pathlib.Path('output').mkdir()
           PYCODE
       - name: Restore
-        working-directory: code
         run: dotnet restore
       - name: Install Apache Ivy Linux
         if: runner.os == 'Linux'
@@ -101,17 +67,17 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ivy
       - name: Scan verification resources with upstream arguments
-        working-directory: code/src/Microsoft.ComponentDetection
+        working-directory: src/Microsoft.ComponentDetection
         run: >-
           dotnet run scan --Verbosity Verbose
-          --SourceDirectory ${{ github.workspace }}/code/test/Microsoft.ComponentDetection.VerificationTests/resources
+          --SourceDirectory ${{ github.workspace }}/test/Microsoft.ComponentDetection.VerificationTests/resources
           --Output ${{ github.workspace }}/output
           --DockerImagesToScan "docker.io/library/debian@sha256:9b0e3056b8cd8630271825665a0613cc27829d6a24906dc0122b3b4834312f7d,mcr.microsoft.com/cbl-mariner/base/core@sha256:c1bc83a3d385eccbb2f7f7da43a726c697e22a996f693a407c35ac7b4387cd59,docker.io/library/alpine@sha256:1304f174557314a7ed9eddb4eab12fed12cb0cd9809e4c28f29af86979a3c870"
           --DetectorArgs DockerReference=EnableIfDefaultOff,SPDX22SBOM=EnableIfDefaultOff
           --MaxDetectionThreads 5
           --DirectoryExclusionList "**/pip/parallel/**;**/pip/roots/**;**/pip/pre-generated/**;**/pip/fallback/**;**/pip/index-removal/**;**/pip/simple-extras/**;**/pip/pytestresultpkg/**"
       - name: Verify output against upstream snapshot
-        working-directory: code/test/Microsoft.ComponentDetection.VerificationTests
+        working-directory: test/Microsoft.ComponentDetection.VerificationTests
         run: dotnet test
         env:
           GITHUB_OLD_ARTIFACTS_DIR: ${{ github.workspace }}/release-output
@@ -123,52 +89,7 @@ jobs:
           name: snapshot-${{ matrix.os }}-${{ matrix.sha }}
           path: |
             output/**
-            code/test/**/TestResults/**
-  codeql:
-    strategy:
-      fail-fast: false
-      matrix:
-        sha: [7102ad7a8c8f3525fc3c5941b34a54d28e199365, da6bc69d33a7dc0990fd53cdc1ec91bbf323441e, 2f00ab9b7def197310deec187f87ad0c52825f57]
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: ${{ matrix.sha }}
-          persist-credentials: false
-          fetch-depth: 0
-      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7
-      - name: Verify exact code
-        run: |
-          test "$(git rev-parse HEAD)" = "${{ matrix.sha }}"
-          git log -1 --format=%H
-          dotnet --info
-      - uses: github/codeql-action/init@b1bff81932f5cdfc8695c7752dcee935dcd061c8
-        with:
-          languages: csharp
-          debug: true
-      - uses: github/codeql-action/autobuild@b1bff81932f5cdfc8695c7752dcee935dcd061c8
-      - uses: github/codeql-action/analyze@b1bff81932f5cdfc8695c7752dcee935dcd061c8
-        with:
-          upload: false
-          output: sarif-results
-      - name: Report actual analysis findings
-        shell: bash
-        run: |
-          python - <<'PYCODE'
-          import json,pathlib
-          for f in pathlib.Path('sarif-results').glob('*.sarif'):
-              data=json.loads(f.read_text())
-              print(f.name,[(r.get('ruleId'),r.get('level')) for run in data['runs'] for r in run.get('results',[])])
-          PYCODE
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
-        if: always()
-        with:
-          name: codeql-${{ matrix.sha }}
-          path: sarif-results/**
+            test/**/TestResults/**
   smoke:
     strategy:
       fail-fast: false
@@ -196,7 +117,7 @@ jobs:
           curl -fsSL https://archive.apache.org/dist/ant/ivy/2.5.3/apache-ivy-2.5.3-bin.tar.gz | tar xOz apache-ivy-2.5.3/ivy-2.5.3.jar | sudo tee /usr/share/ant/lib/ivy.jar > /dev/null
       - name: Checkout the upstream smoke-test repositories
         run: |
-          mkdir smoke-test-repos
+          mkdir smoke-test-repos smoke-output
           repos=(realm/realm-swift microsoft/ApplicationInsights-Java kubernetes/kubernetes apache/kafka axios/axios Radarr/Radarr django/django pnpm/pnpm Textualize/rich rails/rails alacritty/alacritty gatsbyjs/gatsby)
           for repo in "${repos[@]}"; do
             dir="smoke-test-repos/$(basename "$repo")"
