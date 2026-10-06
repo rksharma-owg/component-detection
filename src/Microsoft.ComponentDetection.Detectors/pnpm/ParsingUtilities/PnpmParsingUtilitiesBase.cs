@@ -4,7 +4,6 @@ namespace Microsoft.ComponentDetection.Detectors.Pnpm;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using Microsoft.ComponentDetection.Contracts;
 using YamlDotNet.Core;
 using YamlDotNet.Core.Events;
@@ -13,34 +12,39 @@ using YamlDotNet.Serialization;
 internal abstract class PnpmParsingUtilitiesBase<T>
 where T : PnpmYaml
 {
-    public virtual List<T> DeserializePnpmYamlFileDocuments(string fileContent)
+    public virtual IReadOnlyList<T> DeserializePnpmYamlFileDocuments(string fileContent)
     {
         var deserializer = new DeserializerBuilder()
             .IgnoreUnmatchedProperties()
             .Build();
 
-        var reader = new StringReader(fileContent);
+        using var reader = new StringReader(fileContent);
         var parser = new Parser(reader);
         parser.Consume<StreamStart>();
 
         var documents = new List<T>();
+        var documentCount = 0;
         while (parser.TryConsume<DocumentStart>(out _))
         {
-            var doc = deserializer.Deserialize<T>(parser);
-            if (doc != null)
+            if (++documentCount > 2)
             {
-                documents.Add(doc);
+                throw new InvalidOperationException("A pnpm lockfile must contain one or two YAML documents.");
             }
 
+            var doc = deserializer.Deserialize<T>(parser)
+                ?? throw new InvalidOperationException("A pnpm lockfile must not contain empty YAML documents.");
+
+            documents.Add(doc);
             parser.TryConsume<DocumentEnd>(out _);
         }
 
-        return documents;
-    }
+        parser.Consume<StreamEnd>();
+        if (documentCount == 0)
+        {
+            throw new InvalidOperationException("A pnpm lockfile must contain one or two YAML documents.");
+        }
 
-    public T DeserializePnpmYamlFile(string fileContent)
-    {
-        return this.DeserializePnpmYamlFileDocuments(fileContent).FirstOrDefault();
+        return documents.AsReadOnly();
     }
 
     public virtual bool IsPnpmPackageDevDependency(Package pnpmPackage)

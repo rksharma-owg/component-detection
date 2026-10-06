@@ -2,12 +2,7 @@
 namespace Microsoft.ComponentDetection.Detectors.Pnpm;
 
 using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using YamlDotNet.Core;
-using YamlDotNet.Core.Events;
-using YamlDotNet.Serialization;
 
 internal static class PnpmParsingUtilitiesFactory
 {
@@ -25,27 +20,12 @@ internal static class PnpmParsingUtilitiesFactory
 
     public static string DeserializePnpmYamlFileVersion(string fileContent)
     {
-        var deserializer = new DeserializerBuilder()
-            .IgnoreUnmatchedProperties()
-            .Build();
-
-        var reader = new StringReader(fileContent);
-        var parser = new Parser(reader);
-        parser.Consume<StreamStart>();
-
-        var versions = new List<string>();
-        while (parser.TryConsume<DocumentStart>(out _))
-        {
-            var doc = deserializer.Deserialize<PnpmYaml>(parser);
-            if (doc != null && !string.IsNullOrWhiteSpace(doc.LockfileVersion))
-            {
-                versions.Add(doc.LockfileVersion);
-            }
-
-            parser.TryConsume<DocumentEnd>(out _);
-        }
-
-        var distinctVersions = versions.Distinct().ToList();
+        var documents = Create<PnpmYaml>().DeserializePnpmYamlFileDocuments(fileContent);
+        var distinctVersions = documents
+            .Select(doc => doc.LockfileVersion)
+            .Where(version => !string.IsNullOrWhiteSpace(version))
+            .Distinct()
+            .ToList();
         if (distinctVersions.Count > 1)
         {
             throw new InvalidOperationException($"Inconsistent lockfile versions found: {string.Join(", ", distinctVersions)}");

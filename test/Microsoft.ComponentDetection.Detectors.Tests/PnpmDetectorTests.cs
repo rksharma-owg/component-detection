@@ -1398,4 +1398,133 @@ packages:
         componentRecorder.GetEffectiveDevDependencyValue(rootB.Component.Id).GetValueOrDefault(false).Should().BeTrue();
         componentRecorder.GetEffectiveDevDependencyValue(depB.Component.Id).GetValueOrDefault(false).Should().BeTrue();
     }
+
+    [TestMethod]
+    [DataRow("5.0", "/present/1.0.0", "packages")]
+    [DataRow("6.0", "/present@1.0.0", "packages")]
+    [DataRow("9.0", "present@1.0.0", "snapshots")]
+    public async Task TestPnpmDetector_ThreeDocuments_DetectsNoComponentsAsync(string version, string packagePath, string packageSection)
+    {
+        var yamlFile = $@"
+lockfileVersion: '{version}'
+{packageSection}:
+  {packagePath}: {{}}
+---
+lockfileVersion: '{version}'
+---
+lockfileVersion: '{version}'
+";
+
+        var (_, componentRecorder) = await this.detectorTestUtility
+            .WithFile("pnpm-lock.yaml", yamlFile)
+            .ExecuteDetectorAsync();
+
+        componentRecorder.GetDetectedComponents().Should().BeEmpty();
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task TestPnpmDetector_V5_MultiDocumentLockfile_DuplicatePackage_ProductionWinsAsync(bool productionFirst)
+    {
+        var developmentDocument = @"
+lockfileVersion: '5.0'
+dependencies:
+  shared-pkg: 1.0.0
+packages:
+  /shared-pkg/1.0.0:
+    dev: true
+    dependencies:
+      dev-document-dep: 1.0.0
+  /dev-document-dep/1.0.0:
+    dev: true
+";
+        var productionDocument = @"
+lockfileVersion: '5.0'
+dependencies:
+  shared-pkg: 1.0.0
+packages:
+  /shared-pkg/1.0.0:
+    dev: false
+    dependencies:
+      production-document-dep: 2.0.0
+  /production-document-dep/2.0.0:
+    dev: false
+";
+        var yamlFile = productionFirst
+            ? productionDocument + "\n---\n" + developmentDocument
+            : developmentDocument + "\n---\n" + productionDocument;
+
+        var (scanResult, componentRecorder) = await this.detectorTestUtility
+            .WithFile("pnpm-lock.yaml", yamlFile)
+            .ExecuteDetectorAsync();
+
+        scanResult.ResultCode.Should().Be(ProcessingResultCode.Success);
+        var components = componentRecorder.GetDetectedComponents().ToList();
+        components.Should().HaveCount(3);
+        var shared = components.Single(c => ((NpmComponent)c.Component).Name == "shared-pkg");
+        var developmentDependency = components.Single(c => ((NpmComponent)c.Component).Name == "dev-document-dep");
+        var productionDependency = components.Single(c => ((NpmComponent)c.Component).Name == "production-document-dep");
+
+        componentRecorder.GetEffectiveDevDependencyValue(shared.Component.Id).Should().BeFalse();
+        var graph = componentRecorder.GetDependencyGraphsByLocation().Values.First();
+        graph.IsComponentExplicitlyReferenced(shared.Component.Id).Should().BeTrue();
+        graph.GetDependenciesForComponent(shared.Component.Id).Should().BeEquivalentTo([developmentDependency.Component.Id, productionDependency.Component.Id]);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task TestPnpmDetector_V9_MultiDocumentLockfile_DuplicatePackage_ProductionWinsAsync(bool productionFirst)
+    {
+        var developmentDocument = @"
+lockfileVersion: '9.0'
+importers:
+  .:
+    devDependencies:
+      shared-pkg:
+        specifier: 1.0.0
+        version: 1.0.0
+snapshots:
+  shared-pkg@1.0.0:
+    dependencies:
+      dev-document-dep: 1.0.0
+  dev-document-dep@1.0.0: {}
+";
+        var productionDocument = @"
+lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      shared-pkg:
+        specifier: 1.0.0
+        version: 1.0.0
+snapshots:
+  shared-pkg@1.0.0:
+    dependencies:
+      production-document-dep: 2.0.0
+  production-document-dep@2.0.0: {}
+";
+        var yamlFile = productionFirst
+            ? productionDocument + "\n---\n" + developmentDocument
+            : developmentDocument + "\n---\n" + productionDocument;
+
+        var (scanResult, componentRecorder) = await this.detectorTestUtility
+            .WithFile("pnpm-lock.yaml", yamlFile)
+            .ExecuteDetectorAsync();
+
+        scanResult.ResultCode.Should().Be(ProcessingResultCode.Success);
+        var components = componentRecorder.GetDetectedComponents().ToList();
+        components.Should().HaveCount(3);
+        var shared = components.Single(c => ((NpmComponent)c.Component).Name == "shared-pkg");
+        var developmentDependency = components.Single(c => ((NpmComponent)c.Component).Name == "dev-document-dep");
+        var productionDependency = components.Single(c => ((NpmComponent)c.Component).Name == "production-document-dep");
+
+        componentRecorder.GetEffectiveDevDependencyValue(shared.Component.Id).Should().BeFalse();
+        var graph = componentRecorder.GetDependencyGraphsByLocation().Values.First();
+        graph.IsComponentExplicitlyReferenced(shared.Component.Id).Should().BeTrue();
+        graph.GetDependenciesForComponent(shared.Component.Id).Should().BeEquivalentTo([developmentDependency.Component.Id, productionDependency.Component.Id]);
+        componentRecorder.GetEffectiveDevDependencyValue(developmentDependency.Component.Id).Should().BeFalse();
+        componentRecorder.GetEffectiveDevDependencyValue(productionDependency.Component.Id).Should().BeFalse();
+    }
 }
