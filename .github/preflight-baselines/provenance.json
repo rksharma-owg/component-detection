@@ -1,0 +1,20 @@
+{
+  "ubuntu": {
+    "artifact_id": 11393885654,
+    "run_id": 37421970766,
+    "tested_sha": "2f00ab9b7def197310deec187f87ad0c52825f57",
+    "sha256": "0e97b7607ab120435c767536891d0c459f2c2cf71b106aee8e4f1a3f3c0fcffa"
+  },
+  "windows": {
+    "artifact_id": 11393058091,
+    "run_id": 37421970766,
+    "tested_sha": "2f00ab9b7def197310deec187f87ad0c52825f57",
+    "sha256": "29a9939506670315d857e2d1bc54a9dcfdf1c6f35205196f4530fa321afb80eb"
+  },
+  "macos": {
+    "artifact_id": 11393875708,
+    "run_id": 37421970766,
+    "tested_sha": "2f00ab9b7def197310deec187f87ad0c52825f57",
+    "sha256": "e5e1d7d8a5a3695c6ca4ecbf080ff594ee7a8130b985abf08481feb4fca40902"
+  }
+}
